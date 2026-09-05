@@ -4,6 +4,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -22,15 +24,40 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.callblocker.helper.ContactHelper
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DialerScreen() {
     var phoneNumber by remember { mutableStateOf("") }
     val context = LocalContext.current
     
+    var hasContactsPermission by remember { 
+        mutableStateOf(androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED) 
+    }
+    val contactsPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasContactsPermission = isGranted
+        if (!isGranted) {
+            android.widget.Toast.makeText(context, "Permissão de contatos negada. Nomes não serão exibidos.", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val callPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted && phoneNumber.isNotEmpty()) {
+            val intent = Intent(Intent.ACTION_CALL)
+            intent.data = Uri.parse("tel:$phoneNumber")
+            try { context.startActivity(intent) } catch (e: SecurityException) {}
+        } else if (!isGranted) {
+            android.widget.Toast.makeText(context, "Precisamos da permissão de telefone para realizar a chamada. Nenhum dado é coletado.", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
     // Resolve contact name in real-time
     var contactName by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(phoneNumber) {
-        if (phoneNumber.length > 3) {
+    LaunchedEffect(phoneNumber, hasContactsPermission) {
+        if (hasContactsPermission && phoneNumber.length > 3) {
             contactName = ContactHelper.getContactName(context, phoneNumber)
         } else {
             contactName = null
@@ -48,6 +75,11 @@ fun DialerScreen() {
             contentAlignment = Alignment.BottomCenter
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (!hasContactsPermission) {
+                    TextButton(onClick = { contactsPermissionLauncher.launch(android.Manifest.permission.READ_CONTACTS) }) {
+                        Text("Permitir acesso aos contatos para ver nomes", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
                 if (contactName != null) {
                     Text(
                         text = contactName ?: "",
@@ -57,8 +89,20 @@ fun DialerScreen() {
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                 }
+                
+                if (phoneNumber.startsWith("0303")) {
+                    Text(
+                        text = "⚠️ Possível Telemarketing",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
+                
+                val formattedNumber = android.telephony.PhoneNumberUtils.formatNumber(phoneNumber, "BR") ?: phoneNumber
                 Text(
-                    text = phoneNumber,
+                    text = formattedNumber,
                     fontSize = 48.sp,
                     fontWeight = FontWeight.Light,
                     color = MaterialTheme.colorScheme.onBackground,
@@ -82,9 +126,21 @@ fun DialerScreen() {
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 row.forEach { key ->
-                    DialerButton(text = key) {
-                        phoneNumber += key
-                    }
+                    DialerButton(
+                        text = key,
+                        onClick = { phoneNumber += key },
+                        onLongClick = if (key == "1") {
+                            {
+                                if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CALL_PHONE) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                    val intent = Intent(Intent.ACTION_CALL)
+                                    intent.data = Uri.parse("voicemail:")
+                                    try { context.startActivity(intent) } catch (e: Exception) {}
+                                } else {
+                                    callPermissionLauncher.launch(android.Manifest.permission.CALL_PHONE)
+                                }
+                            }
+                        } else null
+                    )
                 }
             }
         }
@@ -99,15 +155,21 @@ fun DialerScreen() {
             Box(modifier = Modifier.size(72.dp))
             
             // Call Button
+            val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
             IconButton(
                 onClick = {
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                     if (phoneNumber.isNotEmpty()) {
-                        val intent = Intent(Intent.ACTION_CALL)
-                        intent.data = Uri.parse("tel:$phoneNumber")
-                        try {
-                            context.startActivity(intent)
-                        } catch (e: SecurityException) {
-                            // Ignore
+                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CALL_PHONE) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            val intent = Intent(Intent.ACTION_CALL)
+                            intent.data = Uri.parse("tel:$phoneNumber")
+                            try {
+                                context.startActivity(intent)
+                            } catch (e: SecurityException) {
+                                // Ignore
+                            }
+                        } else {
+                            callPermissionLauncher.launch(android.Manifest.permission.CALL_PHONE)
                         }
                     }
                 },
@@ -121,7 +183,21 @@ fun DialerScreen() {
             // Delete Button
             Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
                 if (phoneNumber.isNotEmpty()) {
-                    IconButton(onClick = { phoneNumber = phoneNumber.dropLast(1) }) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .combinedClickable(
+                                onClick = { 
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    phoneNumber = phoneNumber.dropLast(1) 
+                                },
+                                onLongClick = { 
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    phoneNumber = "" 
+                                }
+                            )
+                            .padding(16.dp)
+                    ) {
                         Icon(Icons.Default.Clear, contentDescription = "Apagar", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
                     }
                 }
@@ -130,14 +206,27 @@ fun DialerScreen() {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun DialerButton(text: String, onClick: () -> Unit) {
+fun DialerButton(text: String, onClick: () -> Unit, onLongClick: (() -> Unit)? = null) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     Box(
         modifier = Modifier
             .size(76.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = {
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    onClick()
+                },
+                onLongClick = onLongClick?.let {
+                    {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        it()
+                    }
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         Text(

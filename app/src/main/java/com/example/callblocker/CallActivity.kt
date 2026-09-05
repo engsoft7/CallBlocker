@@ -16,10 +16,46 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.safeDrawingPadding
+import android.os.PowerManager
+import android.content.Context
+import androidx.activity.OnBackPressedCallback
 
 class CallActivity : ComponentActivity() {
+    private var proximityWakeLock: PowerManager.WakeLock? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        @Suppress("DEPRECATION")
+        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+        
+        // Acordar a Tela no Bloqueio
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
+
+        // Minimizar ao invés de fechar ao apertar Voltar
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                moveTaskToBack(true)
+            }
+        })
+
+        // Preparar Sensor de Proximidade
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (powerManager.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)) {
+            proximityWakeLock = powerManager.newWakeLock(
+                PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK,
+                "CallBlocker:ProximityLock"
+            )
+        }
+
         enableEdgeToEdge()
         setContent {
             val darkTheme = isSystemInDarkTheme()
@@ -54,5 +90,32 @@ class CallActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (proximityWakeLock?.isHeld == false) {
+            proximityWakeLock?.acquire()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (proximityWakeLock?.isHeld == true) {
+            proximityWakeLock?.release()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (proximityWakeLock?.isHeld == true) {
+            proximityWakeLock?.release()
+        }
+    }
+
+    override fun finish() {
+        super.finish()
+        @Suppress("DEPRECATION")
+        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
     }
 }

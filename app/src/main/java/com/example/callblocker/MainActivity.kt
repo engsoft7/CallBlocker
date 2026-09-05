@@ -13,8 +13,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Dialpad
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material3.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -42,10 +46,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val requestPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        requestDefaultDialerRole()
         enableEdgeToEdge()
 
         setContent {
@@ -81,56 +87,57 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestDefaultDialerRole() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val roleManager = getSystemService(Context.ROLE_SERVICE) as RoleManager
-            if (!roleManager.isRoleHeld(RoleManager.ROLE_DIALER)) {
-                val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER)
-                requestRoleLauncher.launch(intent)
-            }
-        } else {
-            val telecomManager = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-            if (packageName != telecomManager.defaultDialerPackage) {
-                val intent = Intent(TelecomManager.ACTION_CHANGE_DEFAULT_DIALER).apply {
-                    putExtra(TelecomManager.EXTRA_CHANGE_DEFAULT_DIALER_PACKAGE_NAME, packageName)
-                }
-                startActivity(intent)
-            }
+    override fun onResume() {
+        super.onResume()
+        if (com.example.callblocker.util.CallManager.currentCall.value != null) {
+            startActivity(Intent(this, CallActivity::class.java))
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(prefs: PreferencesManager) {
-    val tabs = listOf("Discador", "Histórico", "Bloqueio", "Lista Negra")
-    val pagerState = rememberPagerState(pageCount = { tabs.size })
-    val coroutineScope = rememberCoroutineScope()
+    var selectedIndex by remember { mutableStateOf(0) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(
-            selectedTabIndex = pagerState.currentPage,
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.primary
-        ) {
-            tabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = pagerState.currentPage == index,
-                    onClick = {
-                        coroutineScope.launch {
-                            pagerState.animateScrollToPage(index)
-                        }
-                    },
-                    text = { Text(title, fontWeight = FontWeight.Bold) }
+    Scaffold(
+        bottomBar = {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary
+            ) {
+                NavigationBarItem(
+                    selected = selectedIndex == 0,
+                    onClick = { selectedIndex = 0 },
+                    icon = { Icon(Icons.Default.Dialpad, contentDescription = "Discador") },
+                    label = { Text("Discador") }
+                )
+                NavigationBarItem(
+                    selected = selectedIndex == 1,
+                    onClick = { selectedIndex = 1 },
+                    icon = { Icon(Icons.Default.History, contentDescription = "Histórico") },
+                    label = { Text("Histórico") }
+                )
+                NavigationBarItem(
+                    selected = selectedIndex == 2,
+                    onClick = { selectedIndex = 2 },
+                    icon = { Icon(Icons.Default.Security, contentDescription = "Bloqueio") },
+                    label = { Text("Bloqueio") }
+                )
+                NavigationBarItem(
+                    selected = selectedIndex == 3,
+                    onClick = { selectedIndex = 3 },
+                    icon = { Icon(Icons.Default.Block, contentDescription = "Lista Negra") },
+                    label = { Text("Lista Negra") }
                 )
             }
         }
-        
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.weight(1f)
-        ) { page ->
-            when (page) {
+    ) { innerPadding ->
+        androidx.compose.animation.Crossfade(
+            targetState = selectedIndex,
+            modifier = Modifier.padding(innerPadding).fillMaxSize(),
+            animationSpec = androidx.compose.animation.core.tween(300)
+        ) { targetIndex ->
+            when (targetIndex) {
                 0 -> DialerScreen()
                 1 -> HistoryScreen(prefs)
                 2 -> BlockerSettingsScreen(prefs)

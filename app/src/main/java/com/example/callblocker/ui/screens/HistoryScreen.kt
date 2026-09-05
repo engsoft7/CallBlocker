@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,6 +24,7 @@ import com.example.callblocker.database.AppDatabase
 import com.example.callblocker.database.CallEntity
 import com.example.callblocker.helper.ContactHelper
 import com.example.callblocker.util.PreferencesManager
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -33,16 +35,56 @@ fun HistoryScreen(prefs: PreferencesManager) {
     val db = remember { AppDatabase.getDatabase(context) }
     val history by db.callDao().getAllCalls().collectAsState(initial = emptyList())
 
+    var hasContactsPermission by remember { 
+        mutableStateOf(androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED) 
+    }
+    val contactsPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasContactsPermission = isGranted
+        if (!isGranted) {
+            android.widget.Toast.makeText(context, "Permissão negada. Nomes não serão exibidos.", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp)
     ) {
-        Text(
-            text = "Histórico de Chamadas",
-            fontSize = 32.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Histórico",
+                fontSize = 32.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            
+            if (history.isNotEmpty()) {
+                val coroutineScope = rememberCoroutineScope()
+                IconButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            db.callDao().clearHistory()
+                        }
+                    },
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = "Limpar Histórico", tint = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
+        if (!hasContactsPermission && history.isNotEmpty()) {
+            TextButton(
+                onClick = { contactsPermissionLauncher.launch(android.Manifest.permission.READ_CONTACTS) },
+                modifier = Modifier.padding(bottom = 8.dp)
+            ) {
+                Text("Permitir acesso aos contatos para ver nomes", color = MaterialTheme.colorScheme.primary)
+            }
+        }
 
         if (history.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -57,7 +99,7 @@ fun HistoryScreen(prefs: PreferencesManager) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(history) { record ->
-                    HistoryItem(record = record)
+                    HistoryItem(record = record, hasContactsPermission = hasContactsPermission)
                 }
             }
         }
@@ -65,17 +107,19 @@ fun HistoryScreen(prefs: PreferencesManager) {
 }
 
 @Composable
-fun HistoryItem(record: CallEntity) {
+fun HistoryItem(record: CallEntity, hasContactsPermission: Boolean) {
     val context = LocalContext.current
     val formatter = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
     val dateString = formatter.format(Date(record.timestamp))
     
     // Resolve contact name
     var displayName by remember { mutableStateOf(record.phoneNumber) }
-    LaunchedEffect(record.phoneNumber) {
-        val contactName = ContactHelper.getContactName(context, record.phoneNumber)
-        if (contactName != null) {
-            displayName = contactName
+    LaunchedEffect(record.phoneNumber, hasContactsPermission) {
+        if (hasContactsPermission) {
+            val contactName = ContactHelper.getContactName(context, record.phoneNumber)
+            if (contactName != null) {
+                displayName = contactName
+            }
         }
     }
 

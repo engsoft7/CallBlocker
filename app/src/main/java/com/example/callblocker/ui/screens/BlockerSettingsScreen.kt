@@ -17,6 +17,28 @@ import com.example.callblocker.util.PreferencesManager
 @Composable
 fun BlockerSettingsScreen(prefs: PreferencesManager) {
     var selectedMode by remember { mutableStateOf(prefs.blockMode) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    var isDefaultDialer by remember { 
+        mutableStateOf(
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val roleManager = context.getSystemService(android.content.Context.ROLE_SERVICE) as android.app.role.RoleManager
+                roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_DIALER)
+            } else {
+                val telecomManager = context.getSystemService(android.content.Context.TELECOM_SERVICE) as android.telecom.TelecomManager
+                context.packageName == telecomManager.defaultDialerPackage
+            }
+        )
+    }
+
+    val requestRoleLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            isDefaultDialer = true
+            android.widget.Toast.makeText(context, "App definido como discador padrão!", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -66,12 +88,33 @@ fun BlockerSettingsScreen(prefs: PreferencesManager) {
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
         ) {
-            Text(
-                text = "Nota: Para que o bloqueio funcione corretamente, este aplicativo deve estar definido como o Discador Padrão do sistema nas configurações do Android.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier.padding(16.dp)
-            )
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Nota: Para que o bloqueio funcione corretamente, este aplicativo deve ser o Discador Padrão do sistema.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+                if (!isDefaultDialer) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                val roleManager = context.getSystemService(android.content.Context.ROLE_SERVICE) as android.app.role.RoleManager
+                                val intent = roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_DIALER)
+                                requestRoleLauncher.launch(intent)
+                            } else {
+                                val intent = android.content.Intent(android.telecom.TelecomManager.ACTION_CHANGE_DEFAULT_DIALER).apply {
+                                    putExtra(android.telecom.TelecomManager.EXTRA_CHANGE_DEFAULT_DIALER_PACKAGE_NAME, context.packageName)
+                                }
+                                context.startActivity(intent)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Definir como Discador Padrão")
+                    }
+                }
+            }
         }
     }
 }
