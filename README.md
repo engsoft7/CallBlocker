@@ -1,5 +1,7 @@
 # CallBlocker & Premium Dialer 🍏🚫
 
+[![Baixar APK](https://img.shields.io/badge/Baixar-APK%20Premium-brightgreen?style=for-the-badge&logo=android)](https://github.com/engsoft7/CallBlocker/releases/latest)
+
 CallBlocker não é apenas um bloqueador de chamadas poderoso; ele é um **Discador Android Premium** completo, focado em minimalismo, performance e usabilidade. Com um design limpo e fluido inspirado na estética da Apple (iOS), ele substitui o aplicativo de telefone nativo do seu celular para oferecer uma experiência superior.
 
 ## ✨ Principais Funcionalidades
